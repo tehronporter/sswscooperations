@@ -1,30 +1,31 @@
+"use client";
+
 import Link from "next/link";
 import { MobileHeader } from "@/components/driver/MobileHeader";
 import { Icon } from "@/components/ui/Icon";
 import { JobStatusBadge } from "@/components/ui/StatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import {
-  CURRENT_DRIVER_ID,
-  getCustomer,
-  getDumpster,
-  getJobsForDriver,
-  getTruck,
-} from "@/lib/data";
-import { appleMapsUrl, formatTime } from "@/lib/utils";
+import { useOperations } from "@/components/system/OperationsProvider";
+import { formatTime } from "@/lib/utils";
+import { PlatformMapLink } from "@/components/ui/PlatformMapLink";
+import { driverJobsForWindow, type DriverJobWindow } from "@/lib/job-dates";
+import { useState } from "react";
 
 // Screen 5 — Driver Dashboard (My Jobs).
 export default function DriverJobsPage() {
-  const jobs = getJobsForDriver(CURRENT_DRIVER_ID);
+  const { jobs: allJobs, currentUser, customers, trucks, dumpsters } = useOperations();
+  const [window,setWindow]=useState<DriverJobWindow>("today");
+  const jobs = driverJobsForWindow(allJobs,currentUser?.id??"",window);
 
   return (
     <>
-      <MobileHeader title="My Jobs" menu />
+      <MobileHeader title="My Jobs" />
 
       <div className="shrink-0 flex border-b border-brand-ice/70 bg-white dark:bg-gray-900 dark:border-white/10">
-        <button className="flex-1 py-3 font-heading text-sm font-medium uppercase tracking-wide text-brand-blue border-b-2 border-brand-blue">
+        <button onClick={()=>setWindow("today")} aria-pressed={window==="today"} className={`flex-1 py-3 font-heading text-sm font-medium uppercase tracking-wide ${window==="today"?"text-brand-blue border-b-2 border-brand-blue":"text-brand-steel dark:text-gray-500"}`}>
           Today
         </button>
-        <button className="flex-1 py-3 font-heading text-sm font-medium uppercase tracking-wide text-brand-steel dark:text-gray-500">
+        <button onClick={()=>setWindow("upcoming")} aria-pressed={window==="upcoming"} className={`flex-1 py-3 font-heading text-sm font-medium uppercase tracking-wide ${window==="upcoming"?"text-brand-blue border-b-2 border-brand-blue":"text-brand-steel dark:text-gray-500"}`}>
           Upcoming
         </button>
       </div>
@@ -34,14 +35,14 @@ export default function DriverJobsPage() {
           <EmptyState
             icon="check"
             title="You're all caught up"
-            message="No jobs assigned for today."
+            message={window==="today"?"No jobs assigned for today.":"No upcoming jobs assigned."}
           />
         ) : (
           jobs.map((job) => {
-            const customer = getCustomer(job.customerId);
-            const truck = job.assignedTruckId ? getTruck(job.assignedTruckId) : null;
+            const customer = customers.find((item) => item.id === job.customerId);
+            const truck = job.assignedTruckId ? trucks.find((item) => item.id === job.assignedTruckId) : null;
             const dumpster = job.assignedDumpsterId
-              ? getDumpster(job.assignedDumpsterId)
+              ? dumpsters.find((item) => item.id === job.assignedDumpsterId)
               : null;
             return (
               <div
@@ -81,15 +82,13 @@ export default function DriverJobsPage() {
                   </div>
 
                   {/* Primary field action: navigate. Full-width, high emphasis. */}
-                  <a
-                    href={appleMapsUrl(job.address)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <PlatformMapLink
+                    address={job.address}
                     className="mt-4 flex items-center justify-center gap-2 h-12 rounded bg-brand-blue text-white font-heading font-semibold uppercase tracking-wide text-sm active:bg-brand-navy"
                   >
                     <Icon name="pin" width={18} height={18} />
-                    Open in Apple Maps
-                  </a>
+                    Navigate
+                  </PlatformMapLink>
                 </div>
 
                 <Link
@@ -97,7 +96,7 @@ export default function DriverJobsPage() {
                   className="flex items-center justify-center gap-1.5 h-12 border-t border-brand-ice/50 dark:border-white/10 text-sm font-medium text-brand-blue active:bg-brand-mist dark:active:bg-white/5"
                 >
                   <Icon name="info" width={16} height={16} />
-                  View Details
+                  Open Job
                 </Link>
               </div>
             );

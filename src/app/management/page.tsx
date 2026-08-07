@@ -1,101 +1,104 @@
+"use client";
+
 import Link from "next/link";
-import { LogoFull } from "@/components/ui/Logo";
+import { Topbar } from "@/components/dispatcher/Topbar";
 import { Card, CardHeader } from "@/components/ui/Card";
-import { Icon, type IconName } from "@/components/ui/Icon";
-import {
-  getAbsenceEvents,
-  getDashboardStats,
-  getInvoices,
-  getJobActivities,
-  getTrucks,
-} from "@/lib/data";
+import { useOperations } from "@/components/system/OperationsProvider";
+import { useExpandedOperations } from "@/components/system/ExpandedOperationsProvider";
+import { jobsForPacificDay } from "@/lib/job-dates";
 
-const links: { href: string; label: string; icon: IconName }[] = [
-  { href: "/dispatcher/dashboard", label: "Operations", icon: "dashboard" },
-  { href: "/dispatcher/jobs", label: "Jobs", icon: "jobs" },
-  { href: "/dispatcher/trucks", label: "Assets", icon: "truck" },
-  { href: "/dispatcher/invoices", label: "Invoices", icon: "invoice" },
-  { href: "/dispatcher/time-clock", label: "Time / PTO", icon: "clock" },
-  { href: "/dispatcher/messages", label: "Messages", icon: "messages" },
-  { href: "/dispatcher/reports", label: "Reports", icon: "reports" },
-];
+const currency = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
 
-export default function ManagementPage() {
-  const stats = getDashboardStats();
-  const invoices = getInvoices();
-  const openReceivables = invoices
-    .filter((i) => !["paid", "closed"].includes(i.status))
-    .reduce((sum, i) => sum + i.amount, 0);
+export default function Page() {
+  const { jobs, trucks, dumpsters, timeRequests, users } = useOperations();
+  const { invoices, pretripSubmissions } = useExpandedOperations();
+  const today = jobsForPacificDay(jobs);
+  const receivables = invoices
+    .filter((invoice) => !["paid", "closed", "void"].includes(invoice.status))
+    .reduce((total, invoice) => total + invoice.amountCents, 0);
+  const activeJobs = today.filter((job) => ["en_route", "arrived"].includes(job.status));
+  const availableAssets =
+    trucks.filter((truck) => truck.status === "in_use" && !truck.currentJobId).length +
+    dumpsters.filter((dumpster) => dumpster.status === "in_yard").length;
+
+  const metrics = [
+    { label: "Jobs Today", value: today.length, href: "/dispatcher/jobs?window=today" },
+    { label: "Active Jobs", value: activeJobs.length, href: "/dispatcher/jobs?status=active" },
+    { label: "Receivables", value: currency.format(receivables / 100), href: "/dispatcher/invoices" },
+    { label: "Available Assets", value: availableAssets, href: "/dispatcher/map" },
+  ];
+  const exceptions = [
+    { label: "Unassigned jobs", value: today.filter((job) => !job.assignedDriverId).length, href: "/dispatcher/jobs?queue=unassigned" },
+    { label: "Pending time requests", value: timeRequests.filter((request) => request.status === "pending").length, href: "/dispatcher/time-clock" },
+    { label: "Failed pre-trips", value: pretripSubmissions.filter((submission) => submission.hasFailures).length, href: "/dispatcher/reports" },
+    { label: "Inactive employees", value: users.filter((user) => user.status === "inactive").length, href: "/dispatcher/employees" },
+  ];
 
   return (
-    <main className="min-h-screen bg-brand-mist p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex items-center justify-between gap-4">
-          <LogoFull />
-          <div className="text-right">
-            <h1 className="font-heading text-3xl font-bold uppercase tracking-wide text-brand-charcoal">
-              Overwatch Management Portal
-            </h1>
-            <p className="text-sm text-brand-steel">Prototype access for partners and leadership.</p>
-          </div>
+    <>
+      <Topbar title="Management Overview" />
+      <div className="portal-content portal-stack">
+        <Card className="portal-card-pad">
+          <p className="font-heading text-xs font-semibold uppercase tracking-wide text-brand-blue">Administrator oversight</p>
+          <p className="mt-1 text-sm text-brand-steel">Live operational metrics, exceptions, and administrative tools.</p>
+        </Card>
+
+        <div className="portal-metric-grid">
+          {metrics.map((metric) => <MetricLink key={metric.label} {...metric} />)}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <Metric label="Jobs Today" value={stats.totalToday} />
-          <Metric label="Active Jobs" value={stats.inProgress} />
-          <Metric label="Receivables" value={`$${openReceivables.toLocaleString()}`} />
-          <Metric label="Trucks Tracked" value={getTrucks().length} />
-        </div>
-
-        <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <div className="grid gap-5 lg:grid-cols-2">
           <Card>
-            <CardHeader title="Management Access" />
-            <div className="grid gap-3 p-5 sm:grid-cols-2">
-              {links.map((link) => (
+            <CardHeader title="Exceptions" />
+            <div className="divide-y divide-brand-ice">
+              {exceptions.map((exception) => <ExceptionLink key={exception.label} {...exception} />)}
+            </div>
+          </Card>
+          <Card>
+            <CardHeader title="Admin Tools" />
+            <div className="portal-action-grid p-4">
+              {[
+                ["Operations Workspace", "/dispatcher/dashboard"],
+                ["Invoices", "/dispatcher/invoices"],
+                ["Reports", "/dispatcher/reports"],
+                ["Settings", "/dispatcher/settings"],
+              ].map(([label, href]) => (
                 <Link
-                  key={link.href}
-                  href={link.href}
-                  className="flex items-center gap-3 rounded border border-brand-ice p-4 hover:border-brand-blue hover:bg-white"
+                  key={href}
+                  href={href}
+                  className="flex min-h-14 items-center justify-center rounded border border-brand-blue px-3 text-center font-semibold text-brand-blue transition-colors hover:bg-brand-blue hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
                 >
-                  <span className="flex h-10 w-10 items-center justify-center rounded bg-brand-blue text-white">
-                    <Icon name={link.icon} />
-                  </span>
-                  <span className="font-heading font-semibold uppercase tracking-wide text-brand-charcoal">
-                    {link.label}
-                  </span>
+                  {label}
                 </Link>
               ))}
             </div>
           </Card>
-
-          <Card>
-            <CardHeader title="Watchlist" />
-            <div className="divide-y divide-brand-ice/50">
-              {getJobActivities().slice(0, 3).map((activity) => (
-                <div key={activity.id} className="p-4">
-                  <div className="font-semibold text-brand-charcoal">{activity.actorName}</div>
-                  <p className="text-sm text-brand-steel">{activity.body}</p>
-                </div>
-              ))}
-              <div className="p-4">
-                <div className="font-semibold text-brand-charcoal">Team Coverage</div>
-                <p className="text-sm text-brand-steel">
-                  {getAbsenceEvents().length} PTO or absence events need schedule awareness.
-                </p>
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
-    </main>
+    </>
   );
 }
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+function MetricLink({ label, value, href }: { label: string; value: React.ReactNode; href: string }) {
   return (
-    <Card className="p-5">
-      <div className="font-heading text-4xl font-bold text-brand-charcoal">{value}</div>
-      <div className="font-heading text-sm uppercase tracking-wide text-brand-steel">{label}</div>
-    </Card>
+    <Link href={href} aria-label={`Open ${label}`} className="block rounded-card focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue">
+      <Card className="portal-card-pad transition-colors hover:border-brand-blue hover:bg-white">
+        <div className="font-heading text-2xl font-bold min-[390px]:text-3xl">{value}</div>
+        <div className="text-sm uppercase text-brand-steel">{label}</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-brand-blue">View details →</div>
+      </Card>
+    </Link>
+  );
+}
+
+function ExceptionLink({ label, value, href }: { label: string; value: React.ReactNode; href: string }) {
+  return (
+    <Link href={href} className="flex min-h-14 justify-between p-4 transition-colors hover:bg-brand-mist focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </Link>
   );
 }

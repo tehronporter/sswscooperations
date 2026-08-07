@@ -3,8 +3,11 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { customers, dumpsters, jobs, trucks, users } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { useOperations } from "@/components/system/OperationsProvider";
+import { staffNavItems, type AppNavItem } from "@/components/navigation/routes";
+import { effectivePermissions } from "@/lib/permissions";
+import type { Customer,Dumpster,Job,Truck,User } from "@/lib/types";
 
 interface Item {
   id: string;
@@ -15,16 +18,15 @@ interface Item {
   keywords: string;
 }
 
-function buildIndex(): Item[] {
-  const nav: Item[] = [
-    { id: "nav-dash", label: "Dashboard", sub: "Go to", icon: "dashboard", href: "/dispatcher/dashboard", keywords: "home overview" },
-    { id: "nav-jobs", label: "Jobs", sub: "Go to", icon: "jobs", href: "/dispatcher/jobs", keywords: "" },
-    { id: "nav-cust", label: "Customers", sub: "Go to", icon: "customers", href: "/dispatcher/customers", keywords: "" },
-    { id: "nav-trucks", label: "Trucks", sub: "Go to", icon: "truck", href: "/dispatcher/trucks", keywords: "assets" },
-    { id: "nav-dump", label: "Dumpsters", sub: "Go to", icon: "dumpster", href: "/dispatcher/dumpsters", keywords: "assets" },
-    { id: "nav-emp", label: "Employees", sub: "Go to", icon: "employees", href: "/dispatcher/employees", keywords: "drivers staff" },
-    { id: "nav-map", label: "Map", sub: "Go to", icon: "map", href: "/dispatcher/map", keywords: "" },
-  ];
+function buildIndex(routes:AppNavItem[],jobs:Job[],customers:Customer[],trucks:Truck[],dumpsters:Dumpster[],users:User[]): Item[] {
+  const nav: Item[] = routes.map((route) => ({
+    id: `nav-${route.permission}`,
+    label: route.label,
+    sub: "Go to",
+    icon: route.icon,
+    href: route.href,
+    keywords: route.keywords ?? "",
+  }));
   const jobItems: Item[] = jobs.map((j) => {
     const c = customers.find((x) => x.id === j.customerId);
     return {
@@ -68,7 +70,15 @@ function buildIndex(): Item[] {
     href: "/dispatcher/employees",
     keywords: u.email,
   }));
-  return [...nav, ...jobItems, ...custItems, ...truckItems, ...dumpItems, ...empItems];
+  const allowed = new Set(routes.map((route) => route.permission));
+  return [
+    ...nav,
+    ...(allowed.has("jobs") ? jobItems : []),
+    ...(allowed.has("customers") ? custItems : []),
+    ...(allowed.has("trucks") ? truckItems : []),
+    ...(allowed.has("dumpsters") ? dumpItems : []),
+    ...(allowed.has("employees") ? empItems : []),
+  ];
 }
 
 export function CommandPalette({
@@ -79,9 +89,15 @@ export function CommandPalette({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const {jobs,customers,trucks,dumpsters,users,currentUser}=useOperations();
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
-  const index = React.useMemo(buildIndex, []);
+  const routes = React.useMemo(() => {
+    if (!currentUser) return [];
+    const permissions = effectivePermissions(currentUser);
+    return staffNavItems.filter((route) => permissions[route.permission]);
+  }, [currentUser]);
+  const index = React.useMemo(()=>buildIndex(routes,jobs,customers,trucks,dumpsters,users), [routes,jobs,customers,trucks,dumpsters,users]);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const results = React.useMemo(() => {

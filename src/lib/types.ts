@@ -1,15 +1,36 @@
 /**
- * Domain types for the SSWSCO Overwatch operations prototype.
+ * Domain types for the SSWSCO Overwatch operations platform.
  *
  * These mirror the database tables named in the PRD (§5):
  *   Users, Customers, Jobs, Trucks, Dumpsters, Time Entries, Job Photos, Job Notes.
  *
  * They are written to line up 1:1 with the eventual Supabase/Postgres schema so
- * that the mock data layer can be swapped for real queries with no changes to
- * the UI components that consume them.
+ * used by the typed Supabase data layer and operational UI.
  */
 
 export type UserRole = "dispatcher" | "driver" | "office" | "management";
+
+export type AccessRole = "admin" | "dispatcher" | "driver";
+
+export type PermissionKey =
+  | "management"
+  | "dashboard"
+  | "jobs"
+  | "customers"
+  | "trucks"
+  | "dumpsters"
+  | "employees"
+  | "time_clock"
+  | "absence"
+  | "invoices"
+  | "messages"
+  | "map"
+  | "reports"
+  | "settings"
+  | "driver_jobs"
+  | "pre_trip"
+  | "sops"
+  | "profile";
 
 export type JobStatus =
   | "pending"
@@ -18,7 +39,7 @@ export type JobStatus =
   | "complete"
   | "cancelled";
 
-export type TruckStatus = "in_use" | "in_shop" | "available";
+export type TruckStatus = "in_use" | "down" | "in_shop";
 
 export type DumpsterStatus = "out" | "in_yard" | "in_shop";
 
@@ -41,10 +62,13 @@ export type DumpsterSize =
 
 export interface User {
   id: string;
+  employeeId: string;
   fullName: string;
   email: string;
   phone: string;
   role: UserRole;
+  accessRole: AccessRole;
+  permissionOverrides: Partial<Record<PermissionKey, boolean>>;
   status: EmployeeStatus;
   /** initials shown in avatars when no photo is set */
   initials: string;
@@ -68,6 +92,15 @@ export interface Truck {
   type: string; // e.g. "Roll-off Truck"
   status: TruckStatus;
   licensePlate: string;
+  registrationDueDate: string;
+  mileage: number;
+  lastPmDate: string;
+  lastPmMileage: number;
+  nextPmDate: string;
+  nextPmMileage: number;
+  make: string;
+  model: string;
+  vin: string;
   assignedDriverId: string | null;
   currentJobId: string | null;
   notes: string;
@@ -140,6 +173,25 @@ export interface JobActivity {
   dispatchNotified?: boolean;
 }
 
+export type NotificationCategory =
+  | "job_assignment"
+  | "dispatch_update"
+  | "driver_status"
+  | "dry_run";
+
+export interface AppNotification {
+  id: string;
+  recipientUserId: string;
+  sourceRole: AccessRole;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  relatedJobId: string | null;
+  createdAt: string;
+  requiresAcknowledgement: boolean;
+  acknowledgedAt: string | null;
+}
+
 export interface Job {
   id: string;
   reference: string; // e.g. "#1052"
@@ -170,6 +222,17 @@ export interface TimeEntry {
   userId: string;
   type: TimeEntryType;
   at: string; // ISO
+  correctedByRequestId?: string;
+  originalEntryId?: string | null;
+}
+
+export interface TimeEntryCorrection {
+  id: string;
+  requestId: string;
+  originalEntryId: string | null;
+  userId: string;
+  replacementType: TimeEntryType;
+  replacementAt: string;
 }
 
 export interface TimeRequest {
@@ -180,6 +243,9 @@ export interface TimeRequest {
   requestedFor: string;
   hours: number;
   reason: string;
+  targetEntryId?: string | null;
+  requestedEntryType?: TimeEntryType | null;
+  requestedAt?: string | null;
 }
 
 export interface AbsenceEvent {
@@ -191,47 +257,19 @@ export interface AbsenceEvent {
   note: string;
 }
 
-export type MessageKind = "message" | "announcement";
-
-export interface CompanyMessage {
-  id: string;
-  kind: MessageKind;
-  title: string;
-  body: string;
-  createdAt: string;
+export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "closed" | "void";
+export interface InvoiceRecord {
+  id: string; invoiceNumber: string; customerId: string; jobId: string | null;
+  amountCents: number; status: InvoiceStatus; dueDate: string; notes: string;
+  sentAt: string | null; paidAt: string | null; closedAt: string | null; createdAt: string;
 }
 
-export interface MessageThread {
-  id: string;
-  channel: "Dispatch" | "Drivers" | "Customer Support" | "Management";
-  title: string;
-  participants: string[];
-  updatedAt: string;
-  messages: CompanyMessage[];
-}
+export interface MessageChannel { id: string; name: string; kind: "channel" | "direct" | "announcement"; createdAt: string }
+export interface TeamMessage { id: string; channelId: string; senderId: string; body: string; createdAt: string; read: boolean }
 
-export interface Invoice {
-  id: string;
-  invoiceNumber: string;
-  customerId: string;
-  jobId: string | null;
-  amount: number;
-  status: "draft" | "sent" | "viewed" | "paid" | "overdue" | "closed";
-  customerGroup: "Big GC" | "Commercial" | "Residential";
-  paymentUrl: string;
-  reminderCadence: "none" | "weekly" | "biweekly" | "monthly";
-  sentAt: string | null;
-  dueAt: string;
-  closedAt: string | null;
-  methodSource: "manual_link" | "processor_placeholder";
-}
+export interface PretripTemplateItem { id: string; label: string; description?: string }
+export interface PretripTemplate { id: string; title: string; version: number; isPublished: boolean; items: PretripTemplateItem[] }
+export interface PretripSubmission { id: string; templateId: string; driverId: string; truckId: string; mileage: number; signature: string; results: Record<string, "pass" | "fail">; hasFailures: boolean; submittedAt: string }
 
-export interface SopItem {
-  id: string;
-  category: "Procedure" | "Safety Review";
-  title: string;
-  summary: string;
-  requiredForDrivers: boolean;
-  acknowledgedBy: string[];
-  updatedAt: string;
-}
+export interface SopDocument { id: string; title: string; category: string; version: number; body: string; isPublished: boolean; requiredForDrivers: boolean; createdAt: string; acknowledged: boolean }
+export interface CompanySettings { companyName: string; address: string; phone: string; email: string; timeZone: string; dateFormat: string; messageRetentionDays: number; invoicePrefix: string }

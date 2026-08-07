@@ -18,12 +18,29 @@ const oswald = Oswald({
 export const metadata: Metadata = {
   title: "Overwatch | SSWSCO",
   description:
-    "Silver State Waste Solutions — Overwatch operations prototype.",
+    "Silver State Waste Solutions — Overwatch operations platform.",
+  applicationName: "SSWSCO Overwatch",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Overwatch",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/icons/favicon-32.png",
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
+  colorScheme: "light dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0b3a70" },
+    { media: "(prefers-color-scheme: dark)", color: "#111827" },
+  ],
 };
 
 export default function RootLayout({

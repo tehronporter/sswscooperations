@@ -8,67 +8,34 @@ import { JobStatusBadge } from "@/components/ui/StatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { useToast } from "@/components/system/ToastProvider";
-import { getCustomer, getDrivers, getJobs, getTruck } from "@/lib/data";
+import { useOperations } from "@/components/system/OperationsProvider";
 import { formatTime } from "@/lib/utils";
-import type { Job, JobStatus } from "@/lib/types";
+import type { Job } from "@/lib/types";
+import { jobsForPacificDay } from "@/lib/job-dates";
 
-/**
- * Interactive Today's Jobs. Demonstrates three review items with local state:
- *  - inline quick-assign of a driver (with busy-driver conflict awareness),
- *  - an always-visible Status column (no horizontal scroll for the essentials),
- *  - a "Live" indicator plus a simulated realtime status update + toast.
- */
+/** Live operational jobs with transactional driver assignment. */
 export function TodaysJobs() {
   const { toast } = useToast();
-  const drivers = getDrivers();
-  const [jobs, setJobs] = React.useState<Job[]>(() => getJobs());
+  const { jobs, users, customers, trucks, assignDriver: persistAssignment } = useOperations();
+  const todaysJobs = React.useMemo(() => jobsForPacificDay(jobs), [jobs]);
+  const drivers = users.filter((user) => user.accessRole === "driver" && user.status === "active");
 
   // A driver is "busy" if they already own an active job.
   const busyDriverIds = React.useMemo(() => {
     const s = new Set<string>();
-    jobs.forEach((j) => {
+    todaysJobs.forEach((j) => {
       if ((j.status === "en_route" || j.status === "arrived") && j.assignedDriverId) {
         s.add(j.assignedDriverId);
       }
     });
     return s;
-  }, [jobs]);
+  }, [todaysJobs]);
 
-  const assignDriver = (jobId: string, driverId: string) => {
-    const prev = jobs.find((j) => j.id === jobId)?.assignedDriverId ?? null;
-    setJobs((js) =>
-      js.map((j) => (j.id === jobId ? { ...j, assignedDriverId: driverId } : j))
-    );
+  const assignDriver = async (jobId: string, driverId: string) => {
     const driver = drivers.find((d) => d.id === driverId);
-    toast(`Assigned ${driver?.fullName ?? "driver"} to ${jobRef(jobs, jobId)}`, {
-      tone: "success",
-      action: {
-        label: "Undo",
-        onClick: () =>
-          setJobs((js) =>
-            js.map((j) =>
-              j.id === jobId ? { ...j, assignedDriverId: prev } : j
-            )
-          ),
-      },
-    });
+    const result = await persistAssignment(jobId, driverId);
+    toast(result.ok ? `Assigned ${driver?.fullName ?? "driver"} to ${jobRef(jobs, jobId)}` : result.error.message, { tone: result.ok ? "success" : "error" });
   };
-
-  // Simulate one realtime update shortly after load to show the live affordance.
-  React.useEffect(() => {
-    const pending = jobs.find((j) => j.status === "pending");
-    if (!pending) return;
-    const id = window.setTimeout(() => {
-      setJobs((js) =>
-        js.map((j) =>
-          j.id === pending.id ? { ...j, status: "en_route" as JobStatus } : j
-        )
-      );
-      toast(`${pending.reference} marked en route by a driver`, { tone: "info" });
-    }, 9000);
-    return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <Card className="lg:col-span-2">
@@ -95,7 +62,7 @@ export function TodaysJobs() {
         }
       />
 
-      {jobs.length === 0 ? (
+      {todaysJobs.length === 0 ? (
         <EmptyState
           icon="jobs"
           title="No jobs scheduled today"
@@ -114,9 +81,9 @@ export function TodaysJobs() {
                 <TH className="text-right pr-5">Status</TH>
               </THead>
               <TBody>
-                {jobs.map((job) => {
-                  const customer = getCustomer(job.customerId);
-                  const truck = job.assignedTruckId ? getTruck(job.assignedTruckId) : null;
+                {todaysJobs.map((job) => {
+                  const customer = customers.find((item) => item.id === job.customerId);
+                  const truck = job.assignedTruckId ? trucks.find((item) => item.id === job.assignedTruckId) : null;
                   return (
                     <TR key={job.id}>
                       <TD className="whitespace-nowrap font-medium text-brand-charcoal">
@@ -139,7 +106,7 @@ export function TodaysJobs() {
                           drivers={drivers}
                           busy={busyDriverIds}
                           currentJobDriver={job.assignedDriverId}
-                          onChange={(id) => assignDriver(job.id, id)}
+                          onChange={(id) => void assignDriver(job.id, id)}
                         />
                       </TD>
                       <TD>{truck?.number ?? "—"}</TD>
@@ -155,8 +122,8 @@ export function TodaysJobs() {
 
           {/* Mobile: cards instead of a horizontally scrolling table */}
           <ul className="md:hidden divide-y divide-gray-100">
-            {jobs.map((job) => {
-              const customer = getCustomer(job.customerId);
+            {todaysJobs.map((job) => {
+              const customer = customers.find((item) => item.id === job.customerId);
               return (
                 <li key={job.id} className="p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -182,7 +149,7 @@ export function TodaysJobs() {
                       drivers={drivers}
                       busy={busyDriverIds}
                       currentJobDriver={job.assignedDriverId}
-                      onChange={(id) => assignDriver(job.id, id)}
+                      onChange={(id) => void assignDriver(job.id, id)}
                     />
                   </div>
                 </li>
@@ -217,7 +184,7 @@ function DriverSelect({
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none rounded border border-brand-ice bg-white pl-2 pr-7 py-1 text-sm text-brand-charcoal hover:border-brand-skyline focus:outline-none focus:ring-2 focus:ring-brand-skyline/40"
+        className="min-h-11 appearance-none rounded border border-brand-ice bg-white pl-2 pr-7 text-base text-brand-charcoal hover:border-brand-skyline focus:outline-none focus:ring-2 focus:ring-brand-skyline/40 sm:text-sm"
         aria-label="Assign driver"
       >
         <option value="" disabled>

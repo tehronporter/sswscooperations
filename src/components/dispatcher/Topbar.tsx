@@ -16,7 +16,7 @@ export function Topbar({
     useDispatcherUI();
 
   return (
-    <header className="h-16 shrink-0 bg-white border-b border-brand-ice/70 flex items-center justify-between px-4 sm:px-6 gap-3">
+    <header className="safe-topbar safe-area-x shrink-0 bg-white border-b border-brand-ice/70 flex items-center justify-between gap-2 sm:gap-3">
       <div className="flex items-center gap-2 min-w-0">
         <button
           onClick={openDrawer}
@@ -25,12 +25,12 @@ export function Topbar({
         >
           <Icon name="menu" />
         </button>
-        <h1 className="font-heading text-xl font-semibold uppercase tracking-wide text-brand-charcoal truncate">
+        <h1 className="truncate font-heading text-lg font-semibold uppercase tracking-normal text-brand-charcoal min-[390px]:text-xl min-[390px]:tracking-wide">
           {title}
         </h1>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
         <button
           onClick={openCommand}
           className="hidden sm:flex items-center gap-2 h-9 rounded border border-brand-ice pl-3 pr-2 text-sm text-brand-steel hover:bg-brand-mist"

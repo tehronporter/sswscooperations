@@ -1,3 +1,6 @@
+"use client";
+
+import * as React from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/dispatcher/Topbar";
@@ -6,35 +9,38 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Icon } from "@/components/ui/Icon";
 import { Avatar } from "@/components/ui/Avatar";
 import { JobStatusBadge } from "@/components/ui/StatusBadge";
-import {
-  getCustomer,
-  getDumpster,
-  getJob,
-  getJobActivities,
-  getJobNotes,
-  getTruck,
-  getUser,
-} from "@/lib/data";
+import { useOperations } from "@/components/system/OperationsProvider";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import type { JobEvent } from "@/lib/types";
+import { CreateJobModal } from "@/components/dispatcher/CreateJobModal";
+import { useToast } from "@/components/system/ToastProvider";
+import { useConfirm } from "@/components/system/ConfirmProvider";
+import { ReasonDialog } from "@/components/ui/ReasonDialog";
 
 // Screen 4 — Job Details (dispatcher view).
 export default function JobDetailsPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const job = getJob(params.id);
+  const { id } = React.use(params);
+  const { jobs, activities: allActivities, customers, dumpsters, jobNotes, trucks, users, hydrated, completeJobAsDispatcher, cancelJob, uploadJobPhotos, canMutate } = useOperations();
+  const [editOpen,setEditOpen]=React.useState(false);const [reasonMode,setReasonMode]=React.useState<"cancel"|"complete"|null>(null);const [busy,setBusy]=React.useState(false);const fileInput=React.useRef<HTMLInputElement>(null);const {toast}=useToast();const confirm=useConfirm();
+  const job = jobs.find((item) => item.id === id || item.reference === id || item.reference === `#${id}`);
+  if (!hydrated) return <div className="flex-1 bg-surface" />;
   if (!job) notFound();
 
-  const customer = getCustomer(job.customerId);
-  const driver = job.assignedDriverId ? getUser(job.assignedDriverId) : null;
-  const truck = job.assignedTruckId ? getTruck(job.assignedTruckId) : null;
+  const customer = customers.find((item) => item.id === job.customerId);
+  const driver = job.assignedDriverId ? users.find((item) => item.id === job.assignedDriverId) : null;
+  const truck = job.assignedTruckId ? trucks.find((item) => item.id === job.assignedTruckId) : null;
   const dumpster = job.assignedDumpsterId
-    ? getDumpster(job.assignedDumpsterId)
+    ? dumpsters.find((item) => item.id === job.assignedDumpsterId)
     : null;
-  const notes = getJobNotes(job.id);
-  const activities = getJobActivities(job.id);
+  const notes = jobNotes.filter((item) => item.jobId === job.id);
+  const activities = allActivities.filter((activity) => activity.jobId === job.id);
+  const complete=async(reason?:string)=>{if(busy)return;const ok=await confirm({title:`Complete ${job.reference}?`,message:"This records completion in the permanent audit history.",confirmLabel:"Complete Job"});if(!ok)return;setBusy(true);const result=await completeJobAsDispatcher(job.id,reason);setBusy(false);toast(result.ok?"Job completed":result.error.message,{tone:result.ok?"success":"error"});if(result.ok)setReasonMode(null);};
+  const cancel=async(reason:string)=>{if(busy)return;setBusy(true);const result=await cancelJob(job.id,reason);setBusy(false);toast(result.ok?"Job cancelled":result.error.message,{tone:result.ok?"success":"error"});if(result.ok)setReasonMode(null);};
+  const addPhotos=async(event:React.ChangeEvent<HTMLInputElement>)=>{const files=Array.from(event.target.files??[]);if(!files.length)return;setBusy(true);const result=await uploadJobPhotos(job.id,files);setBusy(false);toast(result.ok?`${files.length} photo${files.length===1?"":"s"} uploaded`:result.error.message,{tone:result.ok?"success":"error"});event.target.value="";};
 
   return (
     <>
@@ -42,19 +48,20 @@ export default function JobDetailsPage({
         title={`Job ${job.reference}`}
         action={
           <div className="flex gap-2">
-            <Button variant="secondary">
+            <Button disabled={!canMutate||busy} variant="secondary" aria-label="Edit job" onClick={()=>setEditOpen(true)}>
               <Icon name="edit" width={16} height={16} />
-              Edit Job
+              <span className="hidden lg:inline">Edit Job</span>
             </Button>
-            <Button>Mark Complete</Button>
+            {job.status!=="complete"&&job.status!=="cancelled"&&<Button disabled={!canMutate||busy} variant="danger" onClick={()=>setReasonMode("cancel")}>Cancel</Button>}
+            {job.status==="arrived"&&<Button disabled={!canMutate||busy} onClick={()=>job.photos.length?void complete():setReasonMode("complete")} aria-label="Mark job complete"><Icon name="check" width={16} height={16} /><span className="hidden lg:inline">Mark Complete</span></Button>}
           </div>
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div className="portal-content space-y-5">
         <Link
           href="/dispatcher/jobs"
-          className="inline-flex items-center gap-1.5 text-sm text-brand-steel hover:text-brand-charcoal"
+          className="inline-flex min-h-11 items-center gap-1.5 text-sm text-brand-steel hover:text-brand-charcoal"
         >
           <Icon name="chevron-right" width={16} height={16} className="rotate-180" />
           Back to Jobs
@@ -132,14 +139,18 @@ export default function JobDetailsPage({
                 <div
                   key={p.id}
                   className="h-20 w-20 rounded bg-brand-mist border border-brand-ice flex items-center justify-center text-brand-silver"
+                  style={p.url ? { backgroundImage: `url(${p.url})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+                  role={p.url ? "img" : undefined}
+                  aria-label={p.url ? "Job photo" : undefined}
                 >
-                  <Icon name="photo" width={26} height={26} />
+                  {!p.url && <Icon name="photo" width={26} height={26} />}
                 </div>
               ))}
-              <button className="h-20 w-20 rounded border-2 border-dashed border-brand-ice flex flex-col items-center justify-center text-brand-steel hover:border-brand-blue hover:text-brand-blue transition-colors">
+              <button disabled={!canMutate||busy} onClick={()=>fileInput.current?.click()} className="h-20 w-20 rounded border-2 border-dashed border-brand-ice flex flex-col items-center justify-center text-brand-steel hover:border-brand-blue hover:text-brand-blue transition-colors disabled:opacity-50">
                 <Icon name="plus" width={20} height={20} />
                 <span className="text-[11px] mt-1">Add Photo</span>
               </button>
+              <input ref={fileInput} type="file" accept="image/*" multiple onChange={addPhotos} className="sr-only" aria-label="Add job photos" />
             </div>
           </Card>
 
@@ -188,6 +199,9 @@ export default function JobDetailsPage({
           </Card>
         </div>
       </div>
+      <CreateJobModal open={editOpen} onClose={()=>setEditOpen(false)} job={job}/>
+      <ReasonDialog open={reasonMode==="cancel"} onClose={()=>setReasonMode(null)} onSubmit={cancel} busy={busy} title={`Cancel ${job.reference}`} label="Cancellation reason" confirmLabel="Cancel Job" />
+      <ReasonDialog open={reasonMode==="complete"} onClose={()=>setReasonMode(null)} onSubmit={reason=>complete(reason)} busy={busy} title={`Complete ${job.reference} without a photo`} label="Dispatcher override reason" confirmLabel="Complete Job" />
     </>
   );
 }

@@ -7,18 +7,28 @@ import { Sidebar } from "./Sidebar";
 import { CommandPalette } from "./CommandPalette";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { DispatcherUIContext } from "./shell-context";
-import { dispatcherNav } from "./nav";
+import { dispatcherNavSections } from "./nav";
 import { Icon } from "@/components/ui/Icon";
 import { LogoFull } from "@/components/ui/Logo";
-import { getMessages } from "@/lib/data";
+import { useOperations } from "@/components/system/OperationsProvider";
 import { cn } from "@/lib/utils";
+import { effectivePermissions } from "@/lib/permissions";
+import { DispatcherAccount } from "./DispatcherAccount";
+import { DispatcherBottomNav } from "./DispatcherBottomNav";
 
 export function DispatcherShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = React.useState(false);
   const [command, setCommand] = React.useState(false);
   const [notifications, setNotifications] = React.useState(false);
   const pathname = usePathname();
-  const unreadCount = getMessages().length;
+  const { notificationsFor, currentUser } = useOperations();
+  const permissions = currentUser ? effectivePermissions(currentUser) : null;
+  const visibleSections = dispatcherNavSections
+    .map(section => ({ ...section, items: permissions ? section.items.filter(item => permissions[item.permission]) : section.items }))
+    .filter(section => section.items.length > 0);
+  const unreadCount = notificationsFor(currentUser?.id ?? "").filter(
+    (notification) => !notification.acknowledgedAt
+  ).length;
 
   // Global ⌘K / Ctrl+K to open the command palette.
   React.useEffect(() => {
@@ -44,9 +54,12 @@ export function DispatcherShell({ children }: { children: React.ReactNode }) {
         unreadCount,
       }}
     >
-      <div className="flex h-screen overflow-hidden bg-surface text-brand-charcoal">
+      <div className="app-fixed-height flex overflow-hidden bg-surface text-brand-charcoal">
         <Sidebar />
-        <div className="flex-1 flex flex-col overflow-hidden">{children}</div>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+          <DispatcherBottomNav />
+        </div>
       </div>
 
       {/* Mobile drawer */}
@@ -57,9 +70,9 @@ export function DispatcherShell({ children }: { children: React.ReactNode }) {
             onClick={() => setDrawer(false)}
             aria-hidden="true"
           />
-          <div className="absolute left-0 top-0 h-full w-64 bg-brand-navy text-white shadow-xl flex flex-col">
-            <div className="h-20 flex items-center justify-between px-4 border-b border-white/10 bg-white">
-              <LogoFull />
+          <div className="absolute left-0 top-0 h-full w-72 max-w-[88vw] bg-brand-navy text-white shadow-xl flex flex-col safe-area-bottom">
+            <div className="safe-drawer-header flex items-center justify-between px-4 border-b border-white/10 bg-white">
+              <LogoFull markClassName="h-20 w-44" />
               <button
                 onClick={() => setDrawer(false)}
                 aria-label="Close menu"
@@ -68,27 +81,37 @@ export function DispatcherShell({ children }: { children: React.ReactNode }) {
                 <Icon name="close" />
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-              {dispatcherNav.map((item) => {
-                const active = pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "flex items-center gap-3 rounded px-3 py-2.5 font-heading text-sm font-medium uppercase tracking-wide",
-                      active
-                        ? "bg-brand-blue text-white"
-                        : "text-brand-ice hover:bg-white/10 hover:text-white"
-                    )}
-                  >
-                    <Icon name={item.icon} width={18} height={18} />
-                    {item.label}
-                  </Link>
-                );
-              })}
+            <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
+              {visibleSections.map((section) => (
+                <div key={section.label} className="space-y-1">
+                  <div className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-ice/55">
+                    {section.label}
+                  </div>
+                  {section.items.map((item) => {
+                    const active = pathname.startsWith(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        aria-current={active ? "page" : undefined}
+                        className={cn(
+                          "flex items-center gap-3 rounded px-3 py-2.5 font-heading text-sm font-medium uppercase tracking-wide",
+                          active
+                            ? "bg-brand-blue text-white"
+                            : "text-brand-ice hover:bg-white/10 hover:text-white"
+                        )}
+                      >
+                        <Icon name={item.icon} width={18} height={18} />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
             </nav>
+            <div className="border-t border-white/10 p-3 text-brand-ice">
+              <DispatcherAccount onSignedOut={() => setDrawer(false)} />
+            </div>
           </div>
         </div>
       )}

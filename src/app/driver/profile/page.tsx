@@ -4,23 +4,57 @@ import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/driver/MobileHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { useDriverTheme } from "@/components/driver/DriverShell";
+import { useDriverTheme } from "@/components/driver/driver-context";
 import { useConfirm } from "@/components/system/ConfirmProvider";
-import { CURRENT_DRIVER_ID, getUser } from "@/lib/data";
+import { useToast } from "@/components/system/ToastProvider";
+import { InstallAppCard } from "@/components/system/InstallAppCard";
+import { useExpandedOperations } from "@/components/system/ExpandedOperationsProvider";
+import { useOperations } from "@/components/system/OperationsProvider";
+import { createClient } from "@/lib/supabase/client";
 
 // Screen 18 — Profile (driver).
-const items: { icon: IconName; label: string }[] = [
-  { icon: "user", label: "Edit Profile" },
-  { icon: "settings", label: "Change Password" },
-  { icon: "bell", label: "Notification Settings" },
-  { icon: "info", label: "Help & Support" },
+const items: { icon: IconName; label: string; action: "profile" | "password" | "notifications" | "support" }[] = [
+  { icon: "user", label: "Edit Profile", action: "profile" },
+  { icon: "settings", label: "Change Password", action: "password" },
+  { icon: "bell", label: "Notification Settings", action: "notifications" },
+  { icon: "info", label: "Help & Support", action: "support" },
 ];
 
 export default function DriverProfilePage() {
-  const driver = getUser(CURRENT_DRIVER_ID)!;
+  const { currentUser: driver, trucks } = useOperations();
+  const { settings } = useExpandedOperations();
   const { dark, toggle } = useDriverTheme();
   const confirm = useConfirm();
+  const { toast } = useToast();
   const router = useRouter();
+  const supportEmail = settings?.email ?? "dispatch@ssware.com";
+  const assignedTruck = trucks.find((truck) => truck.assignedDriverId === driver?.id);
+
+  const emailSupport = (subject: string, body: string) => {
+    window.location.href = `mailto:${supportEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  const runProfileAction = (action: (typeof items)[number]["action"]) => {
+    if (action === "password") {
+      router.push("/reset-password");
+      return;
+    }
+    if (action === "notifications") {
+      toast("Use the bell icon at the top of the app to review alerts. Browser notification permissions are managed in your device settings.", { tone: "info", duration: 6500 });
+      return;
+    }
+    if (action === "profile") {
+      emailSupport(
+        "Driver profile update request",
+        `Please update my SSWSCO Overwatch profile.\n\nName: ${driver?.fullName ?? ""}\nEmployee ID: ${driver?.employeeId ?? ""}\nPhone/email changes requested:\n`
+      );
+      return;
+    }
+    emailSupport(
+      "SSWSCO Overwatch support request",
+      `I need help with SSWSCO Overwatch.\n\nName: ${driver?.fullName ?? ""}\nEmployee ID: ${driver?.employeeId ?? ""}\nIssue:\n`
+    );
+  };
 
   const logout = async () => {
     const ok = await confirm({
@@ -29,23 +63,33 @@ export default function DriverProfilePage() {
       confirmLabel: "Log Out",
       tone: "danger",
     });
-    if (ok) router.push("/login");
+    if (ok) {
+      await createClient().auth.signOut();
+      router.replace("/login");
+      router.refresh();
+    }
   };
 
   return (
     <>
-      <MobileHeader title="Profile" menu />
+      <MobileHeader title="Profile" />
 
       <div className="flex-1 overflow-y-auto bg-surface dark:bg-gray-950">
         <div className="bg-white dark:bg-gray-900 p-6 flex items-center gap-4 border-b border-brand-ice/60 dark:border-white/10">
-          <Avatar initials={driver.initials} size="lg" />
+          <Avatar initials={driver?.initials ?? "--"} size="lg" />
           <div>
             <div className="font-heading font-semibold uppercase tracking-wide text-brand-charcoal dark:text-white text-lg">
-              {driver.fullName}
+              {driver?.fullName ?? "Employee"}
             </div>
             <div className="text-sm text-brand-steel dark:text-gray-400">Driver</div>
+            <div className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-charcoal dark:text-gray-200">
+              <Icon name="truck" width={16} height={16} />
+              {assignedTruck ? `Assigned truck: ${assignedTruck.number}` : "No truck assigned"}
+            </div>
           </div>
         </div>
+
+        <InstallAppCard />
 
         {/* Night mode */}
         <div className="bg-white dark:bg-gray-900 mt-3 border-y border-brand-ice/60 dark:border-white/10">
@@ -69,7 +113,7 @@ export default function DriverProfilePage() {
               aria-label="Toggle night mode"
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
                   dark ? "translate-x-[22px]" : "translate-x-0.5"
                 }`}
               />
@@ -81,6 +125,8 @@ export default function DriverProfilePage() {
           {items.map((it) => (
             <button
               key={it.label}
+              type="button"
+              onClick={() => runProfileAction(it.action)}
               className="w-full flex items-center gap-3 px-5 py-4 active:bg-brand-mist dark:active:bg-white/5"
             >
               <Icon
@@ -112,7 +158,7 @@ export default function DriverProfilePage() {
         </div>
 
         <p className="text-center text-xs text-brand-steel py-6">
-          SSWSCO Overwatch · Prototype
+          SSWSCO Overwatch · Production Operations
         </p>
       </div>
     </>
